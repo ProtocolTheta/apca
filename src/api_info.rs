@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2023 The apca Developers
+// Copyright (C) 2019-2024 The apca Developers
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use std::env::var_os;
@@ -6,23 +6,20 @@ use std::ffi::OsString;
 
 use url::Url;
 
-use crate::api::API_BASE_URL;
-use crate::data::DATA_BASE_URL;
-use crate::data::DATA_STREAM_BASE_URL;
 use crate::Error;
 
-/// The base URL of the Trading API to use.
+/// Default Trading API base URL (paper trading).
+pub const API_BASE_URL: &str = "https://paper-api.alpaca.markets";
+/// Default Market Data API base URL.
+pub const DATA_BASE_URL: &str = "https://data.alpaca.markets";
+/// Default WebSocket base URL for market data streaming.
+pub const DATA_STREAM_BASE_URL: &str = "wss://stream.data.alpaca.markets";
+
 const ENV_API_BASE_URL: &str = "APCA_API_BASE_URL";
-/// The URL of the websocket stream portion of the Trading API to use.
 const ENV_API_STREAM_URL: &str = "APCA_API_STREAM_URL";
-/// The environment variable representing the key ID.
 const ENV_KEY_ID: &str = "APCA_API_KEY_ID";
-/// The environment variable representing the secret key.
 const ENV_SECRET: &str = "APCA_API_SECRET_KEY";
 
-
-/// Convert a Trading API base URL into the corresponding one for
-/// websocket streaming.
 fn make_api_stream_url(base_url: Url) -> Result<Url, Error> {
   let mut url = base_url;
   url.set_scheme("wss").map_err(|()| {
@@ -32,34 +29,31 @@ fn make_api_stream_url(base_url: Url) -> Result<Url, Error> {
   Ok(url)
 }
 
-
-/// An object encapsulating the information used for working with the
-/// Alpaca API.
+/// Configuration for connecting to the Alpaca API.
+///
+/// Contains API credentials and base URLs for both REST and WebSocket endpoints.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub struct ApiInfo {
   /// The base URL for the Trading API.
   pub api_base_url: Url,
-  /// The websocket stream URL for the Trading API.
+  /// The WebSocket stream URL for order updates.
   pub api_stream_url: Url,
-  /// The base URL for data retrieval.
+  /// The base URL for the Market Data REST API.
   pub data_base_url: Url,
-  /// The websocket base URL for streaming of data.
+  /// The WebSocket base URL for streaming market data.
   pub data_stream_base_url: Url,
-  /// The key ID to use for authentication.
+  /// The API key ID for authentication.
   pub key_id: String,
-  /// The secret to use for authentication.
+  /// The API secret for authentication.
   pub secret: String,
 }
 
 impl ApiInfo {
-  /// Create an `ApiInfo` from the required data. Note that using this
-  /// constructor the websocket URL will be inferred based on the base
-  /// URL provided.
+  /// Create an `ApiInfo` from explicit parts.
   ///
-  /// # Errors
-  /// - [`Error::Url`](crate::Error::Url) If `api_base_url` cannot be parsed
-  ///   into a [`url::Url`](url::Url).
+  /// The WebSocket URL is inferred from the base URL by changing the
+  /// scheme to `wss` and appending `/stream`.
   pub fn from_parts(
     api_base_url: impl AsRef<str>,
     key_id: impl ToString,
@@ -71,9 +65,6 @@ impl ApiInfo {
     Ok(Self {
       api_base_url,
       api_stream_url,
-      // We basically only work with statically defined URL parts here
-      // which we know can be parsed successfully, so unwrapping is
-      // fine.
       data_base_url: Url::parse(DATA_BASE_URL).unwrap(),
       data_stream_base_url: Url::parse(DATA_STREAM_BASE_URL).unwrap(),
       key_id: key_id.to_string(),
@@ -81,23 +72,13 @@ impl ApiInfo {
     })
   }
 
-  /// Create an `ApiInfo` object with information from the environment.
+  /// Create an `ApiInfo` from environment variables.
   ///
-  /// This constructor retrieves API related information from the
-  /// environment and performs some preliminary validation on it. The
-  /// following information is used:
-  /// - the Alpaca Trading API base URL is retrieved from the
-  ///   `APCA_API_BASE_URL` variable
-  /// - the Alpaca Trading API stream URL is retrieved from the
-  ///   `APCA_API_STREAM_URL` variable
-  /// - the Alpaca account key ID is retrieved from the
-  ///   `APCA_API_KEY_ID` variable
-  /// - the Alpaca account secret is retrieved from the
-  ///   `APCA_API_SECRET_KEY` variable
-  ///
-  /// # Notes
-  /// - Neither of the two data APIs can be configured via the
-  ///   environment currently; defaults will be used
+  /// Uses:
+  /// - `APCA_API_BASE_URL` (optional, defaults to paper trading)
+  /// - `APCA_API_STREAM_URL` (optional, inferred from base URL)
+  /// - `APCA_API_KEY_ID` (required)
+  /// - `APCA_API_SECRET_KEY` (required)
   #[allow(unused_qualifications)]
   pub fn from_env() -> Result<Self, Error> {
     let api_base_url = var_os(ENV_API_BASE_URL)
@@ -111,8 +92,6 @@ impl ApiInfo {
     let api_stream_url = var_os(ENV_API_STREAM_URL)
       .map(Result::<_, Error>::Ok)
       .unwrap_or_else(|| {
-        // If the user did not provide an explicit websocket URL then
-        // infer the one to use based on the API base URL.
         let url = make_api_stream_url(api_base_url.clone())?;
         Ok(OsString::from(url.as_str()))
       })?
@@ -141,14 +120,25 @@ impl ApiInfo {
     Ok(Self {
       api_base_url,
       api_stream_url,
-      // We basically only work with statically defined URL parts here
-      // which we know can be parsed successfully, so unwrapping is
-      // fine.
       data_base_url: Url::parse(DATA_BASE_URL).unwrap(),
       data_stream_base_url: Url::parse(DATA_STREAM_BASE_URL).unwrap(),
       key_id,
       secret,
     })
+  }
+
+  /// Build the auth headers used by the Alpaca REST APIs.
+  pub(crate) fn auth_headers(&self) -> reqwest::header::HeaderMap {
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+      "APCA-API-KEY-ID",
+      self.key_id.parse().expect("invalid key_id header value"),
+    );
+    headers.insert(
+      "APCA-API-SECRET-KEY",
+      self.secret.parse().expect("invalid secret header value"),
+    );
+    headers
   }
 }
 
@@ -157,9 +147,6 @@ impl ApiInfo {
 mod tests {
   use super::*;
 
-
-  /// Check that we can create an [`ApiInfo`] object from its
-  /// constituent parts.
   #[test]
   fn from_parts() {
     let api_base_url = "https://paper-api.alpaca.markets/";

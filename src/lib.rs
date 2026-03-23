@@ -2,117 +2,105 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #![allow(clippy::let_unit_value, clippy::unreadable_literal)]
-#![warn(
-  bad_style,
-  dead_code,
-  future_incompatible,
-  improper_ctypes,
-  late_bound_lifetime_arguments,
-  missing_copy_implementations,
-  missing_debug_implementations,
-  missing_docs,
-  no_mangle_generic_items,
-  non_shorthand_field_patterns,
-  nonstandard_style,
-  overflowing_literals,
-  path_statements,
-  patterns_in_fns_without_body,
-  proc_macro_derive_resolution_fallback,
-  renamed_and_removed_lints,
-  rust_2018_compatibility,
-  rust_2018_idioms,
-  stable_features,
-  trivial_bounds,
-  trivial_numeric_casts,
-  type_alias_bounds,
-  tyvar_behind_raw_pointer,
-  unconditional_recursion,
-  unreachable_code,
-  unreachable_patterns,
-  unreachable_pub,
-  unstable_features,
-  unstable_name_collisions,
-  unused,
-  unused_comparisons,
-  unused_import_braces,
-  unused_lifetimes,
-  unused_qualifications,
-  unused_results,
-  while_true,
-  rustdoc::broken_intra_doc_links
-)]
 
 //! A crate for interacting with the [Alpaca
-//! API](https://alpaca.markets/docs/). In many ways it mirrors the
-//! structure of the upstream API, which is composed of functionality
-//! for trading (represented here by the [`api`] module) as well as
-//! market data retrieval (provided as part of the [`data`] module).
+//! API](https://alpaca.markets/docs/).
 //!
-//! Most operations require a [`Client`] object, instantiation of which
-//! in turn happens via a [`ApiInfo`] instance, which captures relevant
-//! configuration data such as credentials and URLs to use. A common
-//! workflow is to just set the `APCA_API_KEY_ID` (to the Alpaca key ID)
-//! and `APCA_API_SECRET_KEY` (to the Alpaca secret key) environment
-//! variables and use default values for everything else.
+//! The crate provides:
+//! - [`trading`] — Generated client for the Alpaca Trading API
+//! - [`market_data`] — Generated client for the Alpaca Market Data API
+//! - [`streaming`] — WebSocket streaming for real-time market data
+//!   (stocks and crypto)
+//! - [`order_updates`] — WebSocket streaming for order status updates
+//!
+//! # Quick Start
 //!
 //! ```no_run
 //! use apca::ApiInfo;
 //! use apca::Client;
 //!
-//! // Assumes credentials to be present in the `APCA_API_KEY_ID` and
-//! // `APCA_API_SECRET_KEY` environment variables.
 //! let api_info = ApiInfo::from_env().unwrap();
 //! let client = Client::new(api_info);
-//! # let _client = client;
-//! ```
-//!
-//! With a [`Client`] instance available, we can now start issuing
-//! requests to the upstream Trading API.
-//!
-//! ```no_run
-//! # use apca::ApiInfo;
-//! # use apca::Client;
-//! # let api_info = ApiInfo::from_env().unwrap();
-//! # let client = Client::new(api_info);
-//! use apca::api::v2::account;
 //!
 //! # tokio::runtime::Runtime::new().unwrap().block_on(async move {
-//! // Inquire general information about the account, such as available
-//! // cash and buying power.
-//! let account = client.issue::<account::Get>(&()).await.unwrap();
-//! let currency = account.currency;
-//! println!("cash:\t{} {currency}", account.cash);
-//! println!("buying power:\t{} {currency}", account.buying_power);
-//! # })
+//! // REST: query account info
+//! let account = client.trading().get_account().await.unwrap();
+//! println!("buying power: {}", account.into_inner().buying_power.unwrap_or_default());
+//!
+//! // WebSocket: stream real-time crypto data (available 24/7)
+//! use apca::streaming::{RealtimeData, CryptoUs, MarketData, drive};
+//! use futures::StreamExt as _;
+//! use futures::FutureExt as _;
+//!
+//! let (mut stream, mut subscription) = client
+//!     .subscribe::<RealtimeData<CryptoUs>>()
+//!     .await
+//!     .unwrap();
+//!
+//! let mut data = MarketData::default();
+//! data.set_trades(["BTC/USD"]);
+//! let sub = subscription.subscribe(&data).boxed();
+//! let () = drive(sub, &mut stream).await.unwrap().unwrap().unwrap();
+//! # });
 //! ```
-
-#[macro_use]
-extern crate http_endpoint;
-
-#[macro_use]
-mod endpoint;
-
-/// A module comprising the functionality backing interactions with the
-/// trading API.
-pub mod api;
-
-/// A module for retrieving market data.
-pub mod data;
-
-mod api_info;
-mod client;
-mod error;
-mod subscribable;
-mod util;
-mod websocket;
 
 use std::borrow::Cow;
 
+mod api_info;
+mod client;
+pub(crate) mod subscribable;
+pub(crate) mod websocket;
+
+/// Generated client and types for the Alpaca Trading API.
+#[allow(
+    unused_imports,
+    clippy::all,
+    missing_docs,
+    unreachable_pub,
+    rustdoc::broken_intra_doc_links
+)]
+pub mod trading {
+    include!(concat!(env!("OUT_DIR"), "/trading_api.rs"));
+}
+
+/// Generated client and types for the Alpaca Market Data API.
+#[allow(
+    unused_imports,
+    clippy::all,
+    missing_docs,
+    unreachable_pub,
+    rustdoc::broken_intra_doc_links
+)]
+pub mod market_data {
+    include!(concat!(env!("OUT_DIR"), "/market_data_api.rs"));
+}
+
+/// Real-time market data streaming over WebSocket.
+pub mod streaming;
+
+/// Real-time order update streaming over WebSocket.
+pub mod order_updates;
+
 pub use crate::api_info::ApiInfo;
 pub use crate::client::Client;
-pub use crate::endpoint::ApiError;
-pub use crate::error::Error;
-pub use crate::error::RequestError;
 pub use crate::subscribable::Subscribable;
 
 type Str = Cow<'static, str>;
+
+/// Common error type for WebSocket and connection errors.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum Error {
+    /// A URL parsing error.
+    #[error("failed to parse URL: {0}")]
+    Url(#[from] url::ParseError),
+    /// A WebSocket error.
+    #[error("WebSocket error: {0}")]
+    WebSocket(#[from] websocket_util::tungstenite::Error),
+    /// A JSON (de)serialization error.
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
+    /// A generic string error.
+    #[error("{0}")]
+    Str(Str),
+}
