@@ -1264,6 +1264,35 @@ mod tests {
     }
   }
 
+  /// Stream SIP stock bars from the live Alpaca endpoint (market hours).
+  #[test(tokio::test)]
+  #[serial(realtime_data)]
+  #[ignore = "requires APCA_API_KEY_ID and APCA_API_SECRET_KEY env vars + market hours"]
+  async fn stream_sip_bars() {
+    let api_info = ApiInfo::from_env().unwrap();
+    let client = Client::new(api_info);
+    let (mut stream, mut subscription) = client.subscribe::<RealtimeData<SIP>>().await.unwrap();
+
+    let mut data = MarketData::default();
+    data.set_bars(["TSLA", "SPY"]);
+
+    let subscribe = subscription.subscribe(&data).boxed();
+    let () = drive(subscribe, &mut stream)
+      .await
+      .unwrap()
+      .unwrap()
+      .unwrap();
+
+    // Wait for one real bar (SIP bars emit every minute during market hours).
+    let item = timeout(Duration::from_secs(120), stream.next())
+      .await
+      .expect("timed out waiting for a SIP bar")
+      .expect("stream ended without yielding a bar");
+
+    let msg = item.unwrap().unwrap();
+    assert!(msg.is_bar(), "expected a bar, got: {msg:?}");
+  }
+
   /// Stream crypto trades from the live Alpaca endpoint (24/7).
   /// Subscribes to all crypto trades via wildcard to maximize the chance
   /// of receiving data quickly, then validates the first trade.
