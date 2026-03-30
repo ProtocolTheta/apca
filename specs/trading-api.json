@@ -4517,7 +4517,8 @@
             "$ref": "#/components/schemas/OrderType"
           },
           "side": {
-            "$ref": "#/components/schemas/OrderSide"
+            "type": "string",
+            "description": "Order side (buy or sell, empty for mleg parent)"
           },
           "time_in_force": {
             "$ref": "#/components/schemas/TimeInForce"
@@ -4683,7 +4684,8 @@
             "$ref": "#/components/schemas/OrderType"
           },
           "side": {
-            "$ref": "#/components/schemas/OrderSide"
+            "type": "string",
+            "description": "Order side (buy or sell)"
           },
           "time_in_force": {
             "$ref": "#/components/schemas/TimeInForce"
