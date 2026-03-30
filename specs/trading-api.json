@@ -5328,7 +5328,8 @@
             "example": "AAPL"
           },
           "exchange": {
-            "$ref": "#/components/schemas/ExchangeForPosition"
+            "type": "string",
+            "description": "Exchange (empty for options)"
           },
           "asset_class": {
             "$ref": "#/components/schemas/AssetClass"
