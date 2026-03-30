@@ -4473,7 +4473,6 @@
           },
           "asset_id": {
             "type": "string",
-            "format": "uuid",
             "description": "Asset ID (For options this represents the option contract ID)"
           },
           "symbol": {
@@ -4640,7 +4639,6 @@
           },
           "asset_id": {
             "type": "string",
-            "format": "uuid",
             "description": "Asset ID (For options this represents the option contract ID)"
           },
           "symbol": {
