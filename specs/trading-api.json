@@ -4477,11 +4477,11 @@
           },
           "symbol": {
             "type": "string",
-            "minLength": 1,
             "description": "Asset symbol, required for all order classes except for `mleg`"
           },
           "asset_class": {
-            "$ref": "#/components/schemas/AssetClass"
+            "type": "string",
+            "description": "Asset class (us_equity, us_option, crypto)"
           },
           "notional": {
             "type": "string",
@@ -4643,11 +4643,11 @@
           },
           "symbol": {
             "type": "string",
-            "minLength": 1,
             "description": "Asset symbol"
           },
           "asset_class": {
-            "$ref": "#/components/schemas/AssetClass"
+            "type": "string",
+            "description": "Asset class"
           },
           "notional": {
             "type": "string",
